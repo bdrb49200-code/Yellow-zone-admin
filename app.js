@@ -7,7 +7,20 @@ let current=null;
 const $=id=>document.getElementById(id);
 async function getToken(){const {data}=await sb.auth.getSession();return data.session?.access_token||''}
 async function api(path,opts={}){const token=await getToken();const r=await fetch(SUPABASE_URL+'/rest/v1/'+path,{...opts,headers:{apikey:SUPABASE_KEY,Authorization:'Bearer '+token,'Content-Type':'application/json',Prefer:'return=representation',...(opts.headers||{})}});if(!r.ok)throw new Error(await r.text());return r.status===204?null:r.json()}
-async function rpc(name,args={}){const token=await getToken();if(!token)throw new Error('not_authenticated');const r=await fetch(SUPABASE_URL+'/rest/v1/rpc/'+name,{method:'POST',headers:{apikey:SUPABASE_KEY,Authorization:'Bearer '+token,'Content-Type':'application/json'},body:JSON.stringify(args)});if(!r.ok)throw new Error(await r.text());return r.json()}
+async function rpc(name,args={}){
+ const token=await getToken();
+ if(!token)throw new Error('انتهت جلسة الدخول. سجّل الدخول مرة أخرى.');
+ const r=await fetch(SUPABASE_URL+'/rest/v1/rpc/'+name,{method:'POST',headers:{apikey:SUPABASE_KEY,Authorization:'Bearer '+token,'Content-Type':'application/json'},body:JSON.stringify(args)});
+ if(!r.ok){
+  const raw=await r.text();
+  let msg=raw;
+  try{const j=JSON.parse(raw);msg=j.message||j.error_description||j.hint||j.details||j.error||raw}catch{}
+  throw new Error(msg||'تعذر تنفيذ العملية');
+ }
+ const raw=await r.text();
+ if(!raw)return null;
+ try{return JSON.parse(raw)}catch{return raw}
+}
 function esc(v){return String(v??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]))}
 function mediaUrl(v=''){const x=String(v||'');return /^https?:\/\//i.test(x)||/^data:/i.test(x)||x.startsWith('blob:')?x:(x?CUSTOMER_SITE+x.replace(/^\.\//,''):'')}
 function applyPermissions(){document.querySelectorAll('[data-perm]').forEach(el=>{const p=el.dataset.perm;el.classList.toggle('hidden',!perms[current.role]?.includes(p))})}
@@ -72,7 +85,7 @@ async function saveOffer(){
   if(id){await rpc('yz_admin_offer_update',body)}
   else{await rpc('yz_admin_offer_create',{...{},p_name_ar:body.p_name_ar,p_name_en:body.p_name_en,p_description_ar:body.p_description_ar,p_description_en:body.p_description_en,p_price:body.p_price,p_active:body.p_active,p_category:body.p_category,p_sort_order:body.p_sort_order,p_booking_enabled:body.p_booking_enabled})}
   $('offerEditor').classList.add('hidden');$('offerMsg').textContent='';await loadOffers()
- }catch(e){$('offerMsg').textContent='تعذر الحفظ: '+e.message}
+ }catch(e){$('offerMsg').textContent='تعذر الحفظ: '+(e?.message||String(e)||'خطأ غير معروف')}
 }
 
 async function loadAds(){
@@ -88,17 +101,17 @@ async function editAd(id){
  }catch(e){alert('تعذر فتح الإعلان')}
 }
 async function deleteAd(id){if(!confirm('حذف الإعلان أو الفعالية نهائيًا؟'))return;try{await rpc('yz_admin_ad_delete',{...{},p_id:id});await loadAds()}catch(e){alert('تعذر حذف الإعلان: '+e.message)}}
-function resizeImage(file){return new Promise((resolve,reject)=>{const r=new FileReader();r.onload=()=>{const img=new Image();img.onload=()=>{const max=1600,scale=Math.min(1,max/Math.max(img.width,img.height));const c=document.createElement('canvas');c.width=Math.max(1,Math.round(img.width*scale));c.height=Math.max(1,Math.round(img.height*scale));c.getContext('2d').drawImage(img,0,0,c.width,c.height);resolve(c.toDataURL('image/jpeg',.78))};img.onerror=reject;img.src=r.result};r.onerror=reject;r.readAsDataURL(file)})}
+function resizeImage(file){return new Promise((resolve,reject)=>{const r=new FileReader();r.onload=()=>{const img=new Image();img.onload=()=>{const max=1400,scale=Math.min(1,max/Math.max(img.width,img.height));const c=document.createElement('canvas');c.width=Math.max(1,Math.round(img.width*scale));c.height=Math.max(1,Math.round(img.height*scale));c.getContext('2d').drawImage(img,0,0,c.width,c.height);resolve(c.toDataURL('image/jpeg',.72))};img.onerror=reject;img.src=r.result};r.onerror=reject;r.readAsDataURL(file)})}
 async function saveAd(){
  const file=$('adFile').files[0];if(file&&file.size>8*1024*1024){$('adMsg').textContent='الصورة كبيرة. اختار صورة أقل من 8MB.';return}
  const body={...{},p_id:$('adId').value||null,p_title:$('adTitle').value.trim(),p_text:$('adBody').value.trim(),p_image_url:$('adImage').value.trim(),p_active:$('adActive').checked,p_bookable:$('adBookable').checked,p_price:Number($('adPrice').value)||0};
  if(!body.p_title){$('adMsg').textContent='اكتب عنوان المحتوى';return}
- try{if(file)body.p_image_url=await resizeImage(file);await rpc('yz_admin_ad_upsert',{...body,p_bookable:body.p_bookable,p_price:body.p_price});$('adEditor').classList.add('hidden');$('adMsg').textContent='';await loadAds()}catch(e){$('adMsg').textContent='تعذر الحفظ: '+e.message}
+ try{if(file)body.p_image_url=await resizeImage(file);await rpc('yz_admin_ad_upsert',{...body,p_bookable:body.p_bookable,p_price:body.p_price});$('adEditor').classList.add('hidden');$('adMsg').textContent='';await loadAds()}catch(e){$('adMsg').textContent='تعذر الحفظ: '+(e?.message||String(e)||'خطأ غير معروف')}
 }
 async function loadGallery(){try{const a=await api('gallery?select=id,title_ar,title_en,image_url,active,sort_order,created_at&order=sort_order.asc,created_at.asc');$('galleryList').innerHTML=a.map(x=>`<div class="ad-row"><div class="ad-info">${x.image_url?`<img src="${esc(mediaUrl(x.image_url))}" alt="">`:''}<div><b>${esc(x.title_ar||x.title_en||'بدون عنوان')}</b><small>${esc(x.title_en||'')}</small></div></div><div class="ad-actions"><span class="${x.active?'active':'inactive'}">${x.active?'ظاهر للعملاء':'مخفي'}</span><button onclick="editGallery('${x.id}')">تعديل</button><button class="danger" onclick="deleteGallery('${x.id}')">حذف</button></div></div>`).join('')||'<div class="empty">لا توجد صور</div>'}catch(e){$('galleryList').innerHTML='<div class="error">تعذر تحميل المعرض</div>'}}
 async function editGallery(id){try{const a=await api('gallery?id=eq.'+encodeURIComponent(id));const x=a[0];if(!x)return;$('galleryId').value=x.id;$('galleryTitleAr').value=x.title_ar||x.title_en||'';$('galleryImage').value=x.image_url&&x.image_url.startsWith('http')?x.image_url:'';$('galleryFile').value='';$('galleryPreview').src=mediaUrl(x.image_url||'');$('galleryPreview').style.display=x.image_url?'block':'none';$('gallerySort').value=x.sort_order??0;$('galleryActive').checked=!!x.active;$('galleryEditorTitle').textContent='تعديل صورة';$('galleryEditor').classList.remove('hidden');$('galleryMsg').textContent=''}catch(e){alert('تعذر فتح الصورة')}}
 async function deleteGallery(id){if(!confirm('حذف الصورة نهائيًا؟'))return;try{await rpc('yz_admin_gallery_delete',{...{},p_id:id});loadGallery()}catch(e){alert('تعذر حذف الصورة')}}
-async function saveGallery(){const file=$('galleryFile').files[0];if(file&&file.size>8*1024*1024){$('galleryMsg').textContent='الصورة كبيرة. اختار صورة أقل من 8MB.';return}const body={...{},p_id:$('galleryId').value||null,p_title_ar:$('galleryTitleAr').value.trim(),p_title_en:$('galleryTitleAr').value.trim(),p_image_url:$('galleryImage').value.trim(),p_active:$('galleryActive').checked,p_sort_order:Number($('gallerySort').value)||0};if(!body.p_image_url&&!file){$('galleryMsg').textContent='اختار صورة أو اكتب رابط صورة';return}try{if(file)body.p_image_url=await resizeImage(file);await rpc('yz_admin_gallery_upsert',body);$('galleryEditor').classList.add('hidden');$('galleryMsg').textContent='';await loadGallery()}catch(e){$('galleryMsg').textContent='تعذر الحفظ: '+e.message}}
+async function saveGallery(){const file=$('galleryFile').files[0];if(file&&file.size>8*1024*1024){$('galleryMsg').textContent='الصورة كبيرة. اختار صورة أقل من 8MB.';return}const body={...{},p_id:$('galleryId').value||null,p_title_ar:$('galleryTitleAr').value.trim(),p_title_en:$('galleryTitleAr').value.trim(),p_image_url:$('galleryImage').value.trim(),p_active:$('galleryActive').checked,p_sort_order:Number($('gallerySort').value)||0};if(!body.p_image_url&&!file){$('galleryMsg').textContent='اختار صورة أو اكتب رابط صورة';return}try{if(file)body.p_image_url=await resizeImage(file);await rpc('yz_admin_gallery_upsert',body);$('galleryEditor').classList.add('hidden');$('galleryMsg').textContent='';await loadGallery()}catch(e){$('galleryMsg').textContent='تعذر الحفظ: '+(e?.message||String(e)||'خطأ غير معروف')}}
 async function loadReviews(){
  try{
   const arr=await rpc('yz_admin_reviews');
